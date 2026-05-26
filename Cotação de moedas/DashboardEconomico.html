@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Econômico Câmbio</title>
+  <style>
+    :root {
+      --bg: #050816;
+      --surface: rgba(19, 24, 44, 0.94);
+      --text: #e6eefb;
+      --muted: #94a3b8;
+      --accent: #7dd3fc;
+      --accent2: #8b5cf6;
+      --accent3: #f59e0b;
+      --border: rgba(148, 163, 184, 0.18);
+      --danger: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, system-ui, sans-serif;
+      background: radial-gradient(circle at top left, #1d2f63 0%, #050816 55%, #02050f 100%);
+      color: var(--text);
+      padding: 24px;
+    }
+    .page { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      padding: 24px;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .dot { width: 14px; height: 14px; border-radius: 999px; background: linear-gradient(135deg, #7dd3fc, #38bdf8); box-shadow: 0 0 18px rgba(56, 189, 248, 0.5); }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .quote-card {
+      padding: 22px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.08));
+      border: 1px solid rgba(255,255,255,0.08);
+      min-height: 160px;
+      display: grid;
+      gap: 10px;
+    }
+    .quote-card h3 { margin: 0; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .quote-card strong { font-size: 2rem; margin-top: 6px; display: block; }
+    .quote-card span { color: var(--accent2); font-weight: 600; }
+    .chart-card h2 { margin-bottom: 14px; font-size: 1.1rem; }
+    .metrics { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 18px; }
+    .metric {
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      padding: 18px;
+      flex: 1 1 225px;
+      min-width: 225px;
+    }
+    .metric strong { display: block; font-size: 1.15rem; margin-top: 4px; }
+    .status { color: var(--muted); margin-top: 10px; }
+    .status.error { color: var(--danger); }
+    @media (max-width: 960px) { .grid-3 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="card brand">
+      <span class="dot"></span>
+      <div>
+        <h1>Dashboard Econômico</h1>
+        <p>Histórico de 12 meses e projeção de 15 dias para USD, GBP e JPY em relação ao real.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div>
+        <div class="status" id="statusMessage">Buscando dados...</div>
+        <div id="diagnostics" style="margin-top:10px;color:var(--muted);font-size:0.9rem;"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button id="retryBtn" style="background:var(--accent);border:0;padding:8px 12px;border-radius:10px;color:#021027;cursor:pointer">Tentar novamente</button>
+          <button id="showDiagBtn" style="background:transparent;border:1px solid rgba(148,163,184,0.12);padding:8px 12px;border-radius:10px;color:var(--muted);cursor:pointer">Mostrar diagnóstico</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card quote-card">
+        <h3>Dólar americano (USD)</h3>
+        <strong id="usdValue">--</strong>
+        <span id="usdChange">--</span>
+      </div>
+      <div class="card quote-card">
+        <h3>Libra esterlina (GBP)</h3>
+        <strong id="gbpValue">--</strong>
+        <span id="gbpChange">--</span>
+      </div>
+      <div class="card quote-card">
+        <h3>Iene japonês (JPY)</h3>
+        <strong id="jpyValue">--</strong>
+        <span id="jpyChange">--</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chart-card">
+        <h2>Histórico dos últimos 12 meses</h2>
+        <canvas id="historyChart" height="260"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chart-card">
+        <h2>Estimativa para os próximos 15 dias</h2>
+        <canvas id="forecastChart" height="260"></canvas>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <span>Atualização</span>
+          <strong id="updatedAt">carregando...</strong>
+        </div>
+        <div class="metric">
+          <span>Fonte</span>
+          <strong>Frankfurter.app</strong>
+        </div>
+        <div class="metric">
+          <span>Observação</span>
+          <strong>Estimativa simples, apenas visual.</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const symbols = ['USD', 'GBP', 'JPY'];
+    const colors = { USD: '#38bdf8', GBP: '#8b5cf6', JPY: '#f59e0b' };
+    const names = { USD: 'Dólar', GBP: 'Libra', JPY: 'Iene' };
+    const statusMessage = document.getElementById('statusMessage');
+    const usdValue = document.getElementById('usdValue');
+    const gbpValue = document.getElementById('gbpValue');
+    const jpyValue = document.getElementById('jpyValue');
+    const usdChange = document.getElementById('usdChange');
+    const gbpChange = document.getElementById('gbpChange');
+    const jpyChange = document.getElementById('jpyChange');
+    const updatedAt = document.getElementById('updatedAt');
+    const diagnostics = document.getElementById('diagnostics');
+    const retryBtn = document.getElementById('retryBtn');
+    const showDiagBtn = document.getElementById('showDiagBtn');
+
+    let historyChart;
+    let forecastChart;
+    let lastData = null;
+    let lastUrl = null;
+    let lastError = null;
+
+    function setStatus(text, type = '') {
+      statusMessage.textContent = text;
+      statusMessage.className = type ? `status ${type}` : 'status';
+    }
+
+    function formatBRL(value, digits = 2) {
+      return Number(value).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    }
+
+    function formatPercent(value) {
+      return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+    }
+
+    function toIso(date) {
+      return date.toISOString().slice(0, 10);
+    }
+
+    function addDays(date, amount) {
+      const next = new Date(date);
+      next.setDate(next.getDate() + amount);
+      return next;
+    }
+
+    function buildUrl(start, end) {
+      return `https://api.frankfurter.app/${start}..${end}?from=BRL&to=USD,GBP,JPY`;
+    }
+
+    async function loadEconomico() {
+      try {
+        setStatus('Buscando dados...');
+        const today = new Date();
+        const lastYear = new Date(today);
+        lastYear.setFullYear(lastYear.getFullYear() - 1);
+        const url = buildUrl(toIso(lastYear), toIso(today));
+        lastUrl = url;
+        lastError = null;
+        console.log('Solicitando dados para', url);
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          const txt = await response.text().catch(() => null);
+          throw new Error(`HTTP ${response.status} ${response.statusText}${txt ? ' - ' + txt : ''}`);
+        }
+
+        const data = await response.json();
+        if (!data || !data.rates || Object.keys(data.rates).length === 0) throw new Error('Resposta inválida ou vazia da API.');
+
+        const dates = Object.keys(data.rates).sort();
+        const rates = { USD: [], GBP: [], JPY: [] };
+
+        dates.forEach(date => {
+          symbols.forEach(symbol => {
+            const rateVal = data.rates[date] && data.rates[date][symbol];
+            if (rateVal == null) throw new Error(`Taxa ausente para ${symbol} em ${date}`);
+            const value = 1 / rateVal;
+            rates[symbol].push(Number(value.toFixed(symbol === 'JPY' ? 4 : 4)));
+          });
+        });
+
+        lastData = { dates, rates };
+
+        const latest = symbols.reduce((acc, symbol) => {
+          const arr = rates[symbol];
+          acc[symbol] = arr[arr.length - 1];
+          acc[`${symbol}Prev`] = arr[arr.length - 2] ?? arr[arr.length - 1];
+          return acc;
+        }, {});
+
+        usdValue.textContent = formatBRL(latest.USD, 2);
+        gbpValue.textContent = formatBRL(latest.GBP, 2);
+        jpyValue.textContent = formatBRL(latest.JPY, 4);
+
+        usdChange.textContent = `Hoje: ${formatPercent((latest.USD - latest.USDPrev) / latest.USDPrev * 100)}`;
+        gbpChange.textContent = `Hoje: ${formatPercent((latest.GBP - latest.GBPPrev) / latest.GBPPrev * 100)}`;
+        jpyChange.textContent = `Hoje: ${formatPercent((latest.JPY - latest.JPYPrev) / latest.JPYPrev * 100)}`;
+
+        updatedAt.textContent = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        renderHistoryChart(dates, rates);
+        renderForecastChart(dates[dates.length - 1], rates);
+        setStatus('Dados atualizados com sucesso.');
+      } catch (error) {
+        console.error('Erro ao carregar dados econômicos:', error);
+        lastError = error && error.message ? error.message : String(error);
+        setStatus(`Erro ao buscar dados: ${lastError}. Verifique a conexão/CORS e atualize a página.`, 'error');
+        if (lastData) {
+          renderHistoryChart(lastData.dates, lastData.rates);
+          renderForecastChart(lastData.dates[lastData.dates.length - 1], lastData.rates);
+        }
+      }
+    }
+
+    function showDiagnostics() {
+      diagnostics.textContent = '';
+      const parts = [];
+      if (lastUrl) parts.push('Última URL: ' + lastUrl);
+      if (lastError) parts.push('Último erro: ' + lastError);
+      if (!lastUrl && !lastError) parts.push('Nenhum diagnóstico disponível ainda. Verifique o console do navegador (F12).');
+      diagnostics.textContent = parts.join(' | ');
+    }
+
+    function renderHistoryChart(labels, rates) {
+      const ctx = document.getElementById('historyChart');
+      if (historyChart) historyChart.destroy();
+      historyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: symbols.map(symbol => ({
+            label: names[symbol],
+            data: rates[symbol],
+            borderColor: colors[symbol],
+            backgroundColor: colors[symbol] + '33',
+            fill: false,
+            tension: 0.25,
+            pointRadius: 0,
+            borderWidth: 2
+          }))
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#cbd5e1' } },
+            tooltip: { callbacks: { label: item => `${item.dataset.label}: ${formatBRL(item.parsed.y, item.dataset.label === 'Iene' ? 4 : 2)}` } }
+          },
+          scales: {
+            x: { ticks: { color: '#94a3b8', maxTicksLimit: 12 }, grid: { color: 'rgba(148,163,184,0.08)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }
+          }
+        }
+      });
+    }
+
+    function renderForecastChart(lastDate, rates) {
+      const labels = [];
+      const forecast = {};
+      const today = new Date(lastDate);
+
+      for (let i = 1; i <= 15; i += 1) {
+        labels.push(addDays(today, i).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+      }
+
+      symbols.forEach(symbol => {
+        const values = rates[symbol];
+        const returns = [];
+        for (let i = Math.max(1, values.length - 31); i < values.length; i += 1) {
+          returns.push(values[i] / values[i - 1] - 1);
+        }
+        const avgReturn = returns.reduce((sum, v) => sum + v, 0) / returns.length;
+        let current = values[values.length - 1];
+        forecast[symbol] = labels.map(() => {
+          current *= (1 + avgReturn);
+          return Number(current.toFixed(symbol === 'JPY' ? 4 : 4));
+        });
+      });
+
+      const ctx = document.getElementById('forecastChart');
+      if (forecastChart) forecastChart.destroy();
+      forecastChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: symbols.map(symbol => ({
+            label: `${names[symbol]} (estimativa)`,
+            data: forecast[symbol],
+            borderColor: colors[symbol],
+            backgroundColor: colors[symbol] + '33',
+            fill: true,
+            borderDash: [6, 4],
+            tension: 0.3,
+            pointRadius: 3,
+            borderWidth: 2
+          }))
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#cbd5e1' } },
+            tooltip: { callbacks: { label: item => `${item.dataset.label}: ${formatBRL(item.parsed.y, item.dataset.label.includes('Iene') ? 4 : 2)}` } }
+          },
+          scales: {
+            x: { ticks: { color: '#94a3b8', maxTicksLimit: 10 }, grid: { color: 'rgba(148,163,184,0.08)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }
+          }
+        }
+      });
+    }
+
+    retryBtn.addEventListener('click', () => { setStatus('Re-tentando...'); loadEconomico(); });
+    showDiagBtn.addEventListener('click', showDiagnostics);
+
+    loadEconomico();
+    setInterval(loadEconomico, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
